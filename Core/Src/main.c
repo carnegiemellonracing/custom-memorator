@@ -24,6 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <cmr_sd_lib.h>
+#include <cmr_sd_benchmark.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +51,6 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-const char total_uptime_filename[] = "uptime.dat";
 uint32_t total_uptime;
 /* USER CODE END PV */
 
@@ -83,6 +84,43 @@ uint8_t BSP_SD_IsDetected(void) {
 
 	return status;
 }
+
+FRESULT delete_all(const char *path) {
+    FRESULT res;
+    FILINFO fno;
+    DIR dir;
+    char full_path[256];
+
+    res = f_opendir(&dir, path);  // Open directory
+    if (res != FR_OK) return res;
+
+    while (1) {
+        res = f_readdir(&dir, &fno);  // Read next file
+        if (res != FR_OK || fno.fname[0] == 0) break;  // End of dir
+        if (fno.fname[0] == '.') continue;  // Skip . and ..
+
+        // Construct full path
+        snprintf(full_path, sizeof(full_path), "%s/%s", path, fno.fname);
+
+        if (fno.fattrib & AM_DIR) {
+            // It's a directory
+            res = delete_all(full_path); // Recurse
+            if (res != FR_OK) break;
+
+            res = f_unlink(full_path); // Delete the directory
+            if (res != FR_OK) break;
+        } else {
+            // It's a file
+            res = f_unlink(full_path);
+            if (res != FR_OK) break;
+        }
+    }
+
+    f_closedir(&dir);
+    return res;
+}
+
+
 
 /* USER CODE END 0 */
 
@@ -120,64 +158,11 @@ int main(void)
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  printf("\r\n\r\n===== START MAIN =====\r\n");
-  printf("\r\n===== START SD CARD INFO =====\r\n");
-  printf("Block Size   : %lu\r\n", hsd.SdCard.BlockSize);
-  printf("Block Nmbr   : %lu\r\n", hsd.SdCard.BlockNbr);
-  printf("Card Size    : %lu\r\n", (hsd.SdCard.BlockSize * hsd.SdCard.BlockNbr) / 1000);
-  printf("Card version : %lu\r\n", hsd.SdCard.CardVersion);
-  printf("===== END SD CARD INFO =====\r\n");
-  printf("\r\n===== START FATFS =====\r\n");
+  sd_mount();
+  sd_list_files();
 
-  FRESULT e;
-  uint32_t wbytes, rbytes;
+  sd_benchmark();
 
-  if ((e=f_mount(&SDFatFS, (TCHAR const*) SDPath, 0)) != FR_OK) {
-	  printf("FATFS: ERROR. Unable to mount SD Card. Error #%u\r\n", e);
-	  Error_Handler();
-  }
-
-  printf("FATFS: Mounted SD Card successfully.\r\n");
-  printf("FATFS: SD PATH = '%s'\r\n", SDPath);
-  printf("FATFS: Formatting Type = ");
-  if (SDFatFS.fs_type == FS_FAT12) {
-      printf("FAT12\r\n");
-  } else if (SDFatFS.fs_type == FS_FAT16) {
-      printf("FAT16\r\n");
-  } else if (SDFatFS.fs_type == FS_FAT32) {
-      printf("FAT32\r\n");
-  } else if (SDFatFS.fs_type == FS_EXFAT) {
-      printf("exFAT\r\n");
-  } else {
-      printf("UNKNOWN (%u)\r\n", SDFatFS.fs_type);
-  }
-
-
-  if ((e=f_open(&SDFile, total_uptime_filename, FA_OPEN_EXISTING | FA_READ)) == FR_OK) {
-          if ((e=f_read(&SDFile, &total_uptime, sizeof(total_uptime), (void*) &rbytes)) == FR_OK) {
-              printf("FATFS: Total uptime = %lu\r\n", total_uptime);
-              f_close(&SDFile);
-          } else {
-              printf("FATFS: ERROR. Unable to read. Error #%u\r\n", e);
-              Error_Handler();
-          }
-      } else {
-          // File did not exist - let's create it
-          if ((e=f_open(&SDFile, total_uptime_filename, FA_CREATE_ALWAYS | FA_WRITE)) == FR_OK) {
-              if ((e=f_write(&SDFile, &total_uptime, sizeof(total_uptime), (void*) &wbytes)) == FR_OK) {
-                  printf("File %s created\n", total_uptime_filename);
-                  f_close(&SDFile);
-              } else {
-                  printf("FATFS: ERROR. Unable to write. Error #%u\r\n", e);
-                  Error_Handler();
-              }
-          } else {
-              printf("FATFS: ERROR. Unable to create. Error #%u\r\n", e);
-              Error_Handler();
-          }
-      }
-
-  printf("===== END FATFS =====\r\n");
 
   /* USER CODE END 2 */
 
@@ -188,6 +173,7 @@ int main(void)
   while (1)
   {
 	  now = uwTick;
+
 	  if (now >= next_blink) {
 		  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
 		  next_blink += 500;
@@ -197,17 +183,12 @@ int main(void)
 
 		  ++total_uptime;
 
-		  printf("ITER: TICK #%lu (LOOP_CNT = %lu, UPTIME = %lu)\r\n", now/1000, loop_cnt, total_uptime);
+		   printf("ITER: TICK #%lu (LOOP_CNT = %lu, UPTIME = %lu)\r\n", now/1000, loop_cnt, total_uptime);
 
 
-		  if ((e=f_open(&SDFile, total_uptime_filename, FA_OPEN_EXISTING | FA_WRITE)) == FR_OK) {
-			  if ((e=f_write(&SDFile, &total_uptime, sizeof(total_uptime), (void*) &wbytes)) != FR_OK) {
-				  printf("FATFS: ERROR. Unable to write uptime file. Error #%u\r\n", e);
-			  }
-			  f_close(&SDFile);
-		  } else {
-			  printf("FATFS: ERROR. Unable to open uptime file. Error #%u\r\n", e);
-		  }
+		   sd_write_file("uptime.dat", &total_uptime);
+
+
 
 		  loop_cnt = 0;
 		  next_tick += 1000;

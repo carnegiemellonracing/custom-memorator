@@ -1,0 +1,3 @@
+../Core/Src/cmr_sd_benchmark.c:13:10:sd_benchmark_write	5
+../Core/Src/cmr_sd_benchmark.c:44:10:sd_benchmark_read	5
+../Core/Src/cmr_sd_benchmark.c:74:6:sd_benchmark	4

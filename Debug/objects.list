@@ -1,3 +1,5 @@
+"./Core/Src/cmr_sd_benchmark.o"
+"./Core/Src/cmr_sd_lib.o"
 "./Core/Src/main.o"
 "./Core/Src/stm32f4xx_hal_msp.o"
 "./Core/Src/stm32f4xx_it.o"
